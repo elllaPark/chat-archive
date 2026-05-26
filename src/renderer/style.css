@@ -1,0 +1,161 @@
+/* Stye for all pages */
+
+html {
+    height: 800px;
+    min-width: 500px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+/* body */
+body {
+    display: grid;
+    height: 100%;
+    margin: 0;
+    grid-template-columns: 1fr 7fr;
+}
+.body-left {
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+    background-color: aliceblue;
+}
+
+header {
+    display: grid;
+    height: 8%;
+    grid-template-columns: 1fr 1fr;
+    background-color: rgb(252, 246, 237);
+}
+
+.header-left, .header-right {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    height: 100%;
+    width: 100%;
+    padding: 15px;
+}
+
+.header-text {
+    margin: 0;
+}
+.header-right {
+    flex-direction: row-reverse;
+    gap:10px;
+}
+
+/* Button styles */
+button {
+    display: flex;
+    width: 20px;
+    height: 20px;
+    border: none;
+}
+
+button:hover {
+    background-color: rgb(245, 245, 245);
+    border-radius: 4px;
+}
+
+.search-button {
+    background: url(./img/search-normal.png);
+    background-size: contain;
+}
+
+.search-button .small {
+    width: 10px;
+    height: 10px;
+}
+
+.add-file {
+    appearance: none;
+    background: url(./img/message-add.png);
+    width: 25px;
+    height: 25px;
+    background-size: contain;
+}
+
+.visually-hidden {
+    position: absolute!important;
+    width: 1px;
+    height: 1px;
+    margin:-1px;
+    padding:0;
+    border:0;
+    clip:rect(0 0 0 0);
+    overflow:hidden;
+    white-space:nowrap;
+}
+
+.setting-button {
+    background: url(./img/setting-2.png);
+    background-size: contain;
+}
+
+.calendar-search {
+    background: url(./img/calendar-search.png);
+    background-size: contain;
+}
+.arrow-up {
+    background: url(./img/arrow-up.png);
+    background-size: contain;
+}
+.arrow-down {
+    background: url(./img/arrow-down.png);
+    background-size: contain;
+}
+
+.close {
+    background: url(./img/close-circle.png);
+    background-size: contain;
+}
+
+footer {
+    display: flex;
+    height: 2%;
+}
+.footer-copy {
+    display: block;
+}
+
+/* main content */
+.content {
+    display: flex;
+    flex-direction: column;
+    height: 90%;
+}
+
+.search-area {
+    background-color: rgb(252, 246, 237);
+    display: none;
+    justify-content:space-between;
+    padding: 5px 15px 5px 15px;
+    gap: 10px;
+}
+
+.bottom {
+    display: grid;
+    height: 8%;
+}
+
+/* modal styling*/
+.modal {
+    display: hidden;
+    position: absolute;
+    z-index: 1000;
+    right: 15px;
+    top: 30px;
+}
+
+.setting-ul {
+    list-style: none;
+    background-color: beige;
+    padding: 5px;
+}
+
+.setting-li {
+    position: relative;
+}

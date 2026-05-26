@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# macOS metadata
+.DS_Store
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Build output
+dist/
+build/
+
+# Local/private chat exports and generated parser output
+Talk_*.txt
+ex*.json
+*.tmp.json
+
+# Electron archive/cache output if copied into the project
+archives/
+config.json
+local-data/

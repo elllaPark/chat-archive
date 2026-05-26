@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset='UTF-8' />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta http-equiv="Content-Security-Policy" content="script-src 'self'" />
+        <link rel="stylesheet" href="./style.css">
+        <link rel="stylesheet" href="./chat.css">
+        <title>Chat archive</title>
+    </head>
+    <body>
+        <div class="body-left">
+            <button class="add-file" type="button" id="filePick"></button>
+            <!--input type="file" class="visually-hidden" id="file"/>
+            <label for="file" class="add-file"></label-->
+        </div>
+        <div class="body-right">
+            <header>
+                <div class="header-left">
+                    <h1 class="header-text">Chat</h1>
+                </div>
+                <div class="header-right">
+                    <button class="setting-button" type="button"></button>
+                    <button class="search-button" type="button" id="search-button"></button>
+                </div>
+            </header>
+            <div class="search-area" id="search-area">
+                <input class="search-input" type="search" placeholder="Search..." size="40" required/>
+                <button class="arrow-up small" type="button"></button>
+                <button class="arrow-down small" type="button"></button>
+                <button class="calendar-search" type="button"></button>
+                <!--button class="close" type="button"></button-->
+            </div>
+        
+            <div class="content">
+                <div class="chatroom-wrapper">
+                    <div class="chat-box">
+                        <div class="message">
+                            <div class="header">
+                                <img src="./img/profile-circle.png">
+                                <span class="username">friend</span>
+                            </div>
+                            <div class="text-wrap">
+                                <p class="text">hi</p>
+                                <span class="timestamp">11:23</span>
+                            </div>
+                        </div>
+                        <div class="message mine">
+                            <div class="header">
+                                <img src="./img/profile-circle.png">
+                                <span class="username">me</span>
+                                
+                            </div>
+                            <div class="text-wrap">
+                                <p class="text">hiii</p>
+                                <span class="timestamp">11:24</span>
+                            </div>
+                        </div>
+                        <div class="date-divider">July 25, 2024</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <script src="./dropDownSearch.js"></script>
+        <script src="./handleArchive.js"></script>
+    </body>
+    <!--div class="modal setting">
+        <ul class="setting-ul">
+            <li class="setting-li">Delete chat</li>
+            <li class="setting-li">Setting chat</li>
+        </ul>
+    </div-->
+</html>
