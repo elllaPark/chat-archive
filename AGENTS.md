@@ -210,3 +210,85 @@ After changing UI/CSS:
 - Electron `userData` archive cache
 - Large/private KakaoTalk exports
 - Parent-folder files outside this project
+
+## Pre-Implementation Documentation Rule
+
+Do not make implementation code changes until the plan, rationale, alternatives, and expected files to change have been written first. For small tasks, this can be brief and included in the working update before editing. For larger, risky, architectural, or multi-step tasks, update `PLANS.md` or a file under `docs/plans/` before implementation. Documentation-only tasks may update documentation directly, but still summarize the intent and expected files first.
+
+## Documentation Workflow For Every Task
+
+For every task in this repository, document the work using the following structure in the final response. For larger work, also use the same structure in a planning document before implementation.
+
+### Goal
+
+Briefly describe the user request and what problem is being solved.
+
+### Plan
+
+Explain the implementation plan before editing code. For simple tasks this can be short; for multi-step tasks it should name the main steps and expected files or areas affected.
+
+### Approach
+
+Explain the chosen implementation strategy.
+
+### Why this approach
+
+Explain why this approach fits the current codebase, architecture, privacy constraints, and current project maturity.
+
+### Alternatives considered
+
+List at least one or two other possible approaches and explain why they were not chosen.
+
+### Changes made
+
+List the files changed and summarize what changed in each file.
+
+### Verification
+
+List tests, build commands, parser runs, manual checks, or limitations. If verification could not be run, say why.
+
+### Risks / follow-ups
+
+Mention risks, tradeoffs, migration concerns, cleanup work, or future improvements.
+
+## Planning Documents
+
+For large, risky, architectural, or multi-step tasks, create or update a planning document before implementation. Use `PLANS.md` or a file under `docs/plans/`.
+
+Planning documents should include:
+
+```markdown
+## Problem
+What are we trying to solve?
+
+## Current behavior
+How does the system currently work?
+
+## Proposed approach
+What implementation path will be taken?
+
+## Why this approach
+Why is this approach appropriate?
+
+## Alternatives considered
+What other approaches were considered?
+
+## Decision log
+- Date:
+- Decision:
+- Reason:
+- Tradeoff:
+
+## Implementation steps
+- [ ] Step 1
+- [ ] Step 2
+- [ ] Step 3
+
+## Verification plan
+How will we know this worked?
+
+## Open questions
+What is still unclear?
+```
+
+Use `docs/decisions/0000-template.md` when recording reusable architecture or product decisions. Create numbered decision records under `docs/decisions/` when a decision is likely to matter beyond the current task.
