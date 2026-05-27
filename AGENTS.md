@@ -215,6 +215,17 @@ After changing UI/CSS:
 
 Do not make implementation code changes until the plan, rationale, alternatives, and expected files to change have been written first. For small tasks, this can be brief and included in the working update before editing. For larger, risky, architectural, or multi-step tasks, update `PLANS.md` or a file under `docs/plans/` before implementation. Documentation-only tasks may update documentation directly, but still summarize the intent and expected files first.
 
+## Branch Workflow
+
+Do not work directly on `main`. Before making changes, create a task branch from a clean `main` branch using one of these naming patterns:
+
+- `feature/[short-task-name]` for new features
+- `fix/[short-task-name]` for bug fixes
+- `refactor/[short-task-name]` for refactoring
+- `docs/[short-task-name]` for documentation changes
+
+After finishing a task, summarize the branch name, changed files, and how to review the diff.
+
 ## Documentation Workflow For Every Task
 
 For every task in this repository, document the work using the following structure in the final response. For larger work, also use the same structure in a planning document before implementation.
