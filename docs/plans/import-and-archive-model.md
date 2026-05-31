@@ -122,7 +122,7 @@ YYYYMMDD_HHMMSS.ext
 
 Important finding: placeholder counts and file counts do not perfectly match. The importer must not assume every placeholder maps to exactly one media file.
 
-### English setting, older option 1: Send text only
+### English setting, observed option 1: Send text only
 
 Observed folder shape:
 
@@ -136,7 +136,7 @@ Observed properties:
 
 - flat folder
 - only `.txt` files
-- older English-setting header:
+- observed English-setting header:
 
 ```text
 Talk_2021.3.30 22:16-1.txt
@@ -155,7 +155,7 @@ Thursday, July 16, 2020
 Jul 16, 2020 22:23, sender : content
 ```
 
-Important finding: older English text-only exports also contain media placeholders, observed as `Photo` and `Video`, but no attached media files.
+Important finding: the inspected English text-only export also contains media placeholders, observed as `Photo` and `Video`, but no attached media files. Because this sample was exported a few years ago and no recent English-setting export has been inspected yet, do not assume whether the current English export convention is the same or different.
 
 ### Korean setting, group chat option 1 and option 2
 
@@ -195,7 +195,7 @@ Another important finding: documents exports can contain more media files than c
 
 - Export detection should record `exportLocale`: `ko`, `en`, or `unknown`.
 - Export detection should record `exportMode`: `text_only`, `documents`, or `unknown`.
-- Export detection should record `exportFormatVersion`: `current`, `legacy`, or `unknown`.
+- Export detection should record a neutral `formatId` or `exportFormatVariant` such as `kakao.ko.mobile_txt.current`, `kakao.en.mobile_txt.observed`, or `unknown`.
 - Export detection should record `chatKind`: `direct`, `group`, or `unknown`.
 - Chat `.txt` files should be identified by filename pattern plus header sniffing, not extension alone.
 - Non-chat `.txt` files in documents exports should be treated as file attachments, not parsed as chat history.
@@ -234,7 +234,7 @@ Initial responsibilities:
   "label": "Kakaotalk_Chat_...",
   "exportLocale": "ko",
   "exportMode": "documents",
-  "exportFormatVersion": "current",
+  "formatId": "kakao.ko.mobile_txt.current",
   "chatKind": "group",
   "importedAt": "2026-05-27T00:00:00.000Z",
   "participants": [],
@@ -338,7 +338,7 @@ Discovery rules:
 - Treat `Talk_...-N.txt` files with KakaoTalk headers as chat history files.
 - Treat other `.txt` files in documents exports as attachment files unless header sniffing proves they are chat history.
 - Detect Korean current exports from `저장한 날짜`, Korean date dividers, and `오전`/`오후` message lines.
-- Detect older English exports from `Date Saved`, English date dividers, and month-name message lines.
+- Detect the observed English-setting format from `Date Saved`, English date dividers, and month-name message lines.
 - Infer `chatKind` conservatively from participant count and folder/title hints. More than two observed senders should be treated as `group`; otherwise use `direct` or `unknown`.
 - Identify media by extension:
   - images: `.jpg`, `.jpeg`, `.png`, `.gif`, `.heic`, `.webp`
@@ -473,7 +473,7 @@ Not chosen because those features depend on stable timestamps, message IDs, mess
 
 - Date: 2026-05-27
 - Decision: Detect export locale/mode/version during discovery and store it in `manifest.json`.
-- Reason: Current Korean exports and older English exports use different headers, date dividers, message formats, and placeholder words.
+- Reason: Inspected Korean-setting and English-setting exports use different headers, date dividers, message formats, and placeholder words.
 - Tradeoff: Import code needs a detection layer before parsing, but parser behavior becomes more explicit and testable.
 
 - Date: 2026-05-27
@@ -518,7 +518,7 @@ We will know this worked when:
 - `media.json` lists discovered photo/video/file assets and marks match status.
 - Korean current text-only exports keep placeholder messages with `mediaMatchStatus: "unavailable_in_text_only_export"`.
 - Korean current documents exports identify media/file assets and do not parse non-chat `.txt` attachments as chat history.
-- Older English text-only exports parse month-name message lines and English placeholders.
+- Observed English text-only exports parse month-name message lines and English placeholders.
 - Group chat exports import without assuming only two senders.
 - Same-chat text-only and documents exports produce equivalent message timelines where the chat text overlaps.
 - Extra documents-export media files are preserved as unmatched media rather than treated as failures.
