@@ -33,7 +33,11 @@ src/
     main.js        # Electron main process, IPC, archive indexing
     preload.js     # Safe APIs exposed to the renderer
   parser/
-    chatParse.py   # KakaoTalk text parser
+    chatParse.py   # Compatibility facade for the parser pipeline
+    detector.py    # Format detection from file/signature samples
+    preprocessor.py
+    registry.py
+    parsers/       # Format-specific parser implementations
     main.py        # CLI wrapper for the parser
   renderer/
     index.html     # Main app UI
@@ -83,6 +87,36 @@ Example:
 python3 src/parser/main.py local-data/imports/chat.txt /private/tmp/chat-output.json
 ```
 
+To inspect parser metadata while debugging detection or unknown formats:
+
+```bash
+python3 src/parser/main.py local-data/imports/chat.txt /private/tmp/chat-output.json --include-metadata
+```
+
+## Parser Flow
+
+The parser is organized as a small pipeline:
+
+```text
+KakaoTalk export file
+  -> preprocessor
+  -> detector
+  -> parser registry
+  -> format-specific parser
+  -> normalizer
+  -> validator
+  -> JSON exporter
+```
+
+The default CLI output remains compatible with the renderer: it writes a list of message objects. The richer parser result is available with `--include-metadata` and includes detection details, parser used, parse status, warnings, and sample lines for unknown formats.
+
+To add a new KakaoTalk export parser:
+
+1. Add a format signature to `src/parser/detector.py`.
+2. Add a parser class under `src/parser/parsers/`.
+3. Register the parser in `src/parser/registry.py`.
+4. Add a sanitized fixture and parser tests under `tests/`.
+
 ## Parsed Message Format
 
 The parser currently outputs messages like:
@@ -126,7 +160,7 @@ Known technical issues:
 - Drag-and-drop currently relies on renderer-side file path behavior that may not work in modern Electron.
 - Archive indexing only scans direct child `.txt` files.
 - Media messages such as `Photo` and `Video` are not linked to actual files yet.
-- Some multiline messages may not be preserved.
+- Mobile `.txt` multiline messages may not be preserved yet.
 
 ## License
 

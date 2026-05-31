@@ -397,17 +397,39 @@ Possible integration files, only if output schema changes need app compatibility
 
 ## Implementation steps
 
-- [ ] Add sanitized parser fixtures.
-- [ ] Add parser data models for parse results, messages, metadata, and warnings.
-- [ ] Add format detector.
-- [ ] Add Korean mobile `.txt` parser.
-- [ ] Add English mobile `.txt` parser for the observed format.
-- [ ] Add PC `.csv` parser.
-- [ ] Preserve current CLI behavior through `src/parser/main.py`.
-- [ ] Keep `chatParse.py` as a compatibility facade or migrate callers carefully.
-- [ ] Add tests for detector and each parser.
-- [ ] Run parser outputs against fixtures and confirm stable JSON.
+- [x] Add sanitized parser fixtures.
+- [x] Add parser data models for parse results, messages, metadata, and warnings.
+- [x] Add format detector.
+- [x] Add Korean mobile `.txt` parser.
+- [x] Add English mobile `.txt` parser for the observed format.
+- [x] Add PC `.csv` parser.
+- [x] Preserve current CLI behavior through `src/parser/main.py`.
+- [x] Keep `chatParse.py` as a compatibility facade or migrate callers carefully.
+- [x] Add tests for detector and each parser.
+- [x] Run parser outputs against fixtures and confirm stable JSON.
 - [ ] Decide whether renderer compatibility changes are needed for the new schema.
+
+## Implementation log
+
+- Date: 2026-05-31
+- Change: Added an MVP parser pipeline with preprocessor, detector, parser registry, format-specific parsers, normalizer, validator, unknown parser, and JSON exporter.
+- Reason: This creates extension points for new KakaoTalk formats while keeping the current Electron parser CLI compatible.
+- Tradeoff: The default CLI still exports the older renderer-compatible message list, so richer parser metadata is currently available only with `--include-metadata`.
+
+- Date: 2026-05-31
+- Change: Added sanitized parser fixtures and Python `unittest` coverage.
+- Reason: The refactor needs tests before deeper schema or importer changes.
+- Tradeoff: Fixtures are intentionally small and do not cover every real-world multiline/mobile edge case yet.
+
+- Date: 2026-05-31
+- Change: Mobile `.txt` parsers now append non-structural continuation lines to the previous message and extend `source_line_end`.
+- Reason: Inspected exports showed many physical lines without timestamps that are part of multiline KakaoTalk messages.
+- Tradeoff: Blank lines are still ignored until we confirm whether KakaoTalk exports meaningful blank lines inside message bodies.
+
+- Date: 2026-05-31
+- Change: Added shared placeholder classification for multi-photo messages such as `사진 5장` and `5 photos`.
+- Reason: KakaoTalk can send multiple photos as a single chat message, and these placeholders should be treated as photo messages rather than normal text.
+- Tradeoff: The parser records `attachmentCount`, but matching those placeholders to actual media files remains importer work.
 
 ## Verification plan
 
