@@ -160,7 +160,7 @@ Known technical issues:
 - Drag-and-drop currently relies on renderer-side file path behavior that may not work in modern Electron.
 - Archive indexing only scans direct child `.txt` files.
 - Media messages such as `Photo` and `Video` are not linked to actual files yet.
-- Mobile `.txt` multiline messages may not be preserved yet.
+- Blank lines inside mobile `.txt` multiline messages are not preserved yet.
 
 ## License
 

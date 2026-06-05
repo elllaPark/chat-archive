@@ -32,9 +32,12 @@ EN_DATE_DIVIDER_RE = re.compile(
     r"\d{1,2},\s+\d{4}",
     re.IGNORECASE,
 )
-# English mobile txt message assumption: "Jul 16, 2020 22:23, sender : content".
+# English mobile txt message assumptions:
+# - observed older sample: "Jul 16, 2020 22:23, sender : content"
+# - observed current sample: "Apr 7, 2019 at 9:44 PM, sender : content"
 EN_MESSAGE_RE = re.compile(
-    r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}\s+\d{1,2}:\d{2},\s+.+?\s+:\s+",
+    r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}"
+    r"(?:\s+\d{1,2}:\d{2}|\s+at\s+\d{1,2}:\d{2}\s*[AP]M),\s+.+?\s+:\s+",
     re.IGNORECASE,
 )
 

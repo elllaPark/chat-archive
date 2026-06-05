@@ -21,11 +21,18 @@ MONTH_LOOKUP = {
     "dec": 12,
 }
 
-# English mobile txt message assumption:
+# English mobile txt message assumption for the first inspected English sample:
 # "Jul 16, 2020 22:23, Alice : hello"
 # Groups are month, day, year, hour, minute, sender, and message body.
 MSG_EN_MONTH = re.compile(
     r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),\s+(\d{4})\s+(\d{2}):(\d{2}),\s+([^:]+?)\s+:\s+(.*)$",
+    re.IGNORECASE,
+)
+# English mobile txt message assumption for the newer inspected English sample:
+# "Apr 7, 2019 at 9:44 PM, Alice : hello"
+# Some exports use a narrow no-break space before AM/PM, so \s* is intentional.
+MSG_EN_AT_AMPM = re.compile(
+    r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),\s+(\d{4})\s+at\s+(\d{1,2}):(\d{2})\s*([AP]M),\s+([^:]+?)\s+:\s+(.*)$",
     re.IGNORECASE,
 )
 # English date divider assumption: "Thursday, July 16, 2020".
@@ -59,17 +66,23 @@ class KakaoMobileTxtEnParser(BaseParser):
                 continue
 
             match = MSG_EN_MONTH.match(raw)
-            if not match:
+            ampm_match = MSG_EN_AT_AMPM.match(raw)
+            if not match and not ampm_match:
                 if DATE_DIVIDER_EN.match(raw):
                     continue
                 if last_message is not None:
                     _append_continuation(last_message, raw, line_number)
                 continue
 
-            month_name, day, year, hour, minute, sender, content = match.groups()
+            if match:
+                month_name, day, year, hour, minute, sender, content = match.groups()
+            else:
+                month_name, day, year, hour, minute, ampm, sender, content = ampm_match.groups()
+                hour = _to_24_hour(hour, ampm)
+
             # Convert month names to numbers before normalization creates ISO strings.
             month = MONTH_LOOKUP[month_name.lower()]
-            timestamp = f"{year}-{month:02d}-{int(day):02d} {hour}:{minute}"
+            timestamp = f"{year}-{month:02d}-{int(day):02d} {int(hour):02d}:{minute}"
             message_type, metadata = classify_message_content(content)
             last_message = RawMessage(
                 raw=raw,
@@ -114,3 +127,15 @@ def _append_continuation(message: RawMessage, raw: str, line_number: int) -> Non
     message.content = f"{message.content}\n{raw}"
     message.source_line_end = line_number
     message.type, message.metadata = classify_message_content(message.content)
+
+
+def _to_24_hour(hour: str, ampm: str) -> str:
+    """Convert English AM/PM timestamps into 24-hour time."""
+
+    hour_int = int(hour)
+    token = ampm.upper()
+    if token == "PM" and hour_int != 12:
+        hour_int += 12
+    if token == "AM" and hour_int == 12:
+        hour_int = 0
+    return f"{hour_int:02d}"

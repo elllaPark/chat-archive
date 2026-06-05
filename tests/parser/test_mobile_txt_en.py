@@ -12,6 +12,17 @@ FIXTURES = ROOT / "tests" / "fixtures" / "parser"
 
 
 class MobileTxtEnParserTests(unittest.TestCase):
+    def test_parses_observed_english_timestamp_variants(self):
+        parser = ChatParser()
+        parser.parse_chat_file(FIXTURES / "kakao_mobile_txt_en_sample.txt")
+
+        self.assertEqual(len(parser.messages), 5)
+        self.assertEqual(parser.messages[2]["timestamp"], "2020-07-16 23:59")
+        self.assertEqual(parser.messages[3]["timestamp"], "2020-07-17 00:01")
+        self.assertEqual(parser.results[0].messages[3]["type"], "photo")
+        self.assertEqual(parser.results[0].messages[3]["metadata"]["attachmentCount"], 2)
+        self.assertEqual(parser.results[0].messages[4]["type"], "emoticon")
+
     def test_preserves_multiline_message_content(self):
         parser = ChatParser()
         parser.parse_chat_file(FIXTURES / "kakao_mobile_txt_en_multiline_sample.txt")

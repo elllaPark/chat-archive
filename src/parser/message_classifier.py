@@ -28,6 +28,8 @@ def classify_message_content(content: str) -> tuple[str, dict[str, Any]]:
         "Video": ("video", 1),
         "음성메시지": ("voice", 1),
         "이모티콘": ("emoticon", 1),
+        "Emoticon": ("emoticon", 1),
+        "Emoticons": ("emoticon", 1),
     }
     if stripped in exact_types:
         message_type, count = exact_types[stripped]

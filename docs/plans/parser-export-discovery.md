@@ -431,6 +431,11 @@ Possible integration files, only if output schema changes need app compatibility
 - Reason: KakaoTalk can send multiple photos as a single chat message, and these placeholders should be treated as photo messages rather than normal text.
 - Tradeoff: The parser records `attachmentCount`, but matching those placeholders to actual media files remains importer work.
 
+- Date: 2026-06-01
+- Change: Added support for a newer observed English mobile timestamp shape such as `Apr 7, 2019 at 9:44 PM` and normalized English `Emoticon`/`Emoticons` placeholders.
+- Reason: Same-chat Korean and English exports should produce matching timeline metadata even when locale-specific timestamp and placeholder text differ.
+- Tradeoff: This is still based on observed samples; future KakaoTalk English exports may introduce more wording variants.
+
 ## Verification plan
 
 Implementation should be verified by:
