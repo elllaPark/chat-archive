@@ -176,6 +176,13 @@ the managed copy service and Electron integration are still pending.
 
 Run parser, importer, and journal tests with `python3 -m unittest discover`.
 
+`archive.build_inventory(source, destination)` performs read-only discovery,
+classifies transcript samples, checks overlapping paths and available capacity,
+and returns file snapshots and warnings. `archive.prepare_import(journal, job_id,
+source, destination)` also registers the full inventory atomically in an existing
+journal. Neither API copies files or creates the destination folder. The default
+space reserve is 64 MiB and can be overridden with `reserve_bytes`.
+
 ## License
 
 ISC

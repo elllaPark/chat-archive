@@ -2,7 +2,11 @@ import csv
 import re
 from io import StringIO
 
-from models import DetectionResult, PreprocessedInput
+# Support both the standalone parser CLI and package imports from the archive layer.
+if __package__:
+    from .models import DetectionResult, PreprocessedInput
+else:
+    from models import DetectionResult, PreprocessedInput
 
 
 # Format IDs are intentionally about observed structure, not only language.

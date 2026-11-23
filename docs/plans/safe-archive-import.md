@@ -90,7 +90,7 @@ The repository already uses Python SQLite and has an importer test. Extending th
 - [x] Inspect importer, SQLite schema, Electron import flow, and existing tests.
 - [x] Create the task branch and write this plan.
 - [x] Define migration and persistent journal contracts.
-- [ ] Add inventory and destination/space checks.
+- [x] Add inventory and destination/space checks.
 - [ ] Add verified copying and deterministic collision handling.
 - [ ] Add cancellation, per-file resume, and duplicate handling.
 - [ ] Verify failure recovery and source preservation.
@@ -110,6 +110,11 @@ Inject failures for insufficient space, destination disconnection/write errors, 
 - Finalize the progress/cancel/resume IPC contract in the UI integration milestone.
 
 ## Implementation log
+
+- 2026-11-23 completed inventory milestone: `build_inventory()` reads bounded text samples, reuses detector signatures, preserves unknown files, excludes symlinks/special files with warnings, rejects overlapping roots and portable filename collisions, and checks copy bytes plus a configurable 64 MiB reserve. `prepare_import()` registers all file snapshots atomically without creating destination files. New tests cover classification, encodings, overlap aliases, capacity errors, source changes, special files, and transaction rollback.
+- Limitations: free-space checks are advisory; 64 MiB is an initial configurable reserve, not a guarantee for database size. Classification/warnings are returned in memory while snapshot paths/sizes/mtimes are persisted. The copy milestone must persist reports, handle safe collision renaming, recheck paths/snapshots, and validate existing destination contents. The journal must already exist outside the source tree; bootstrap and UI wiring remain pending.
+
+- 2026-11-23 plan for inventory milestone: add `src/archive/storage.py` for deterministic no-symlink inventory, bounded transcript detection, overlapping-root and free-space checks. Add atomic inventory registration in `src/archive/database.py`, package-compatible imports in the detector, exports in `src/archive/__init__.py`, and synthetic filesystem tests in `tests/test_archive_storage.py`. Reuse detector signatures instead of duplicating KakaoTalk patterns. No copying or UI changes in this increment. Store source snapshots in existing journal rows; classification and warnings are returned by the preparation result for now.
 
 - 2026-11-23: Inspected existing code and confirmed baseline tests pass (14). Added this plan only; implementation remains pending.
 - 2026-11-23: Added `src/archive/database.py` with transactional v1-to-v2 migration using PRAGMA user_version, persistent jobs/files, guarded transitions, and size/hash evidence constraints. Existing imports keep their original schema-version provenance. Added journal tests covering reopen/resume, migration rollback, future-version rejection, duplicates, and verification requirements.

@@ -100,6 +100,27 @@ class ImportJournal:
                 "VALUES (?,?,?,?,?)", (job_id, source_root, destination_root, now, now)
             )
 
+    def register_inventory(self, job_id: str, source_root: str,
+                           destination_root: str, files) -> None:
+        """Register a complete snapshot atomically; never leave a partial job.
+
+        Each file supplies source/stored relative paths, size, and modification
+        time. Classification is handled by the storage layer, not this journal.
+        """
+        now = _now()
+        with self.connection:
+            self.connection.execute('BEGIN IMMEDIATE')
+            self.connection.execute(
+                'INSERT INTO import_jobs(id,source_root,destination_root,created_at,updated_at) '
+                'VALUES (?,?,?,?,?)', (job_id, source_root, destination_root, now, now)
+            )
+            self.connection.executemany(
+                'INSERT INTO import_files(job_id,source_relative_path,stored_relative_path,'
+                'expected_size,source_mtime_ns,updated_at) VALUES (?,?,?,?,?,?)',
+                ((job_id, item.source_relative_path, item.stored_relative_path,
+                  item.size_bytes, item.mtime_ns, now) for item in files)
+            )
+
     def add_file(self, job_id: str, source_path: str, stored_path: str,
                  size: int, mtime_ns: int) -> int:
         with self.connection:
