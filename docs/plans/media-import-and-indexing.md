@@ -61,6 +61,19 @@ Thumbnails/previews = disposable cache
 
 This keeps the app standalone and local. It does not require a server or a database service.
 
+### Confirmed storage and import policies
+
+Confirmed by the user on 2026-11-23:
+
+- Use SQLite for messages, asset metadata, and relationships.
+- Let the user choose the archive location, including an external SSD.
+- Copy source exports into archive storage and retain the source exports unchanged.
+- Mark each copy complete only after source and destination sizes and SHA-256 hashes agree.
+- Persist import progress so interrupted or failed imports can resume; recheck files before skipping completed work.
+- Avoid copying identical files again while preserving distinct message relationships and source provenance.
+- Store candidate links and reasons when matching is uncertain; do not automatically confirm them.
+- Generate thumbnails after verified copying; thumbnail failure does not prevent import completion.
+
 ## Why this approach
 
 KakaoTalk archives can be large; one inspected documents export was around 20GB. Storing videos and photos directly inside JSON or SQLite would make the app heavy and make recovery harder. Keeping originals as files preserves the export faithfully and allows normal filesystem backup.
@@ -160,6 +173,7 @@ extension
 size_bytes
 sha256
 filename_timestamp
+filename_sequence
 width
 height
 duration_ms
@@ -235,7 +249,9 @@ Extract:
 }
 ```
 
-This timestamp is a matching clue, not proof. Some files may be extra, duplicated, edited, forwarded, or not represented by placeholders exactly.
+The user confirmed that the filename timestamp represents sending time and the numeric suffix represents order. Parse the suffix numerically, not lexicographically. Preserve the full original filename as matching evidence. Files without a usable timestamp or suffix must remain indexable with null values.
+
+These rules describe the supplied KakaoTalk exports; retain warnings for future naming variants. Sending time and order help matching, but do not eliminate ambiguity caused by missing or extra assets.
 
 ## Matching strategy
 
@@ -244,27 +260,20 @@ Match parser messages to indexed assets after both timelines exist.
 Initial matching flow:
 
 1. Sort messages by timestamp and source order.
-2. Sort assets by filename timestamp, extension type, filename sequence, and filename.
+2. Sort assets by filename sending timestamp, numeric filename sequence, and full filename. Filter by asset type without changing that order.
 3. For each placeholder message, infer expected asset type and count:
    - `사진` / `Photo`: one photo
    - `사진 N장` / `N photos`: N photos
    - `동영상` / `Video`: one video
    - `음성메시지`: one audio file
    - `파일:` or future file markers: one document/other file
-4. Find candidate assets with matching type near the message timestamp.
+   - emoticon placeholders: no attached image is exported; retain the event with `not_applicable` and do not search for an asset
+4. Find candidates by filename sending time: use the same minute for minute-precision mobile timestamps, or the same second for second-precision transcripts. For multiple messages within a minute, examine full filenames, numeric suffix order, transcript order, and expected attachment counts together.
 5. Prefer assets not already matched.
 6. If exactly enough candidates are found with high confidence, link them.
 7. If too few, too many, or unclear candidates are found, mark the message/assets as ambiguous instead of guessing silently.
 
-Suggested initial timestamp window:
-
-```text
-same second first
-then +/- 2 minutes
-then same day fallback only if needed
-```
-
-The exact windows should be tested against real exports before locking them in.
+Do not broaden matching automatically to +/- 2 minutes or the same day. If the available filename and transcript evidence does not establish a unique assignment, preserve candidates and reasons as ambiguous. Verify suffix ordering and multi-photo grouping against fixtures and actual exports before enabling automatic assignment.
 
 ## Match statuses
 
@@ -357,6 +366,11 @@ Rules:
 
 ## Decision log
 
+- Date: 2026-11-23
+- Decision: Confirm the storage/import policies above and use filename sending time plus numeric suffix order for media matching. Emoticons have no exported image attachment.
+- Reason: The user accepted all proposed storage policies and confirmed the filename and emoticon conventions.
+- Tradeoff: Verified copies need additional storage and hashing time; filename evidence can still leave ambiguous message-to-asset assignments.
+
 - Date: 2026-08-25
 - Decision: Implement the first milestone directly in SQLite with `messages`, `assets`, and `imports`, without copying files or matching assets to messages.
 - Reason: The normalized parser output is already relational, Python includes SQLite support, and this establishes the archive boundary without changing parser behavior.
@@ -407,12 +421,14 @@ We will know this works when:
 - extra media files are preserved as `unmatched`
 - import warnings are visible in metadata
 - deleting thumbnails does not lose original data
+- interrupted imports resume without duplicating verified files or losing message relationships
+- same-minute messages and multi-photo groups use numeric filename ordering, with unresolved assignments preserved as ambiguous
+- emoticons remain timeline events without missing-image warnings
 
 ## Open questions
 
 - How should schema migrations be represented after the initial `schema_version = 1` database?
-- What timestamp matching window is accurate for large real KakaoTalk documents exports?
-- Should originals be copied into archive storage by default, or should the user choose between copy and reference-only modes?
+- How should filename sequence ordering delimit multi-photo groups when files are missing or extra?
 - How should the UI show ambiguous or unmatched media messages?
 - Which media metadata should be extracted first: dimensions, duration, EXIF dates, or only basic file metadata?
-- Should checksum calculation happen during import or as a background verification task for very large files?
+- How should copying, hashing, cancellation, and resume checkpoints be batched for large imports? Verification is required before marking a copy complete.
