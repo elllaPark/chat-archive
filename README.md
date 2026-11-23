@@ -162,6 +162,20 @@ Known technical issues:
 - Media messages such as `Photo` and `Video` are not linked to actual files yet.
 - Blank lines inside mobile `.txt` multiline messages are not preserved yet.
 
+## Safe Import Journal (In Progress)
+
+`src/archive/database.py` adds a durable import journal to an existing version 1
+archive database. `ImportJournal(connection)` migrates it to database version 2
+without rewriting legacy import rows. Use a dedicated SQLite connection because
+journal operations commit each checkpoint independently.
+
+Jobs track running/paused/failed/completed states; files track
+pending/copying/verified/failed states. Verified file records require equal sizes
+and matching SHA-256 evidence. The journal does not copy or hash files itself;
+the managed copy service and Electron integration are still pending.
+
+Run parser, importer, and journal tests with `python3 -m unittest discover`.
+
 ## License
 
 ISC
