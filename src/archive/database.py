@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def migrate(connection: sqlite3.Connection) -> None:
@@ -31,7 +31,7 @@ def migrate(connection: sqlite3.Connection) -> None:
             if versions - {1}:
                 raise ValueError("Unsupported legacy schema version")
             version = 1
-        if version not in (1, SCHEMA_VERSION):
+        if version not in (1, 2, SCHEMA_VERSION):
             raise ValueError(f"Unsupported schema version: {version}")
         if version == 1:
             # Separate job records do not falsely mark source-only imports as copied.
@@ -69,7 +69,20 @@ def migrate(connection: sqlite3.Connection) -> None:
                     AND source_sha256 = destination_sha256
                 ))
             )""")
-            connection.execute("PRAGMA user_version = 2")
+            version = 2
+        if version == 2:
+            # A managed archive owns one immutable inventory and one index result.
+            # Keeping this checkpoint separate preserves old source-only imports.
+            connection.execute("""CREATE TABLE managed_archive (
+                singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+                archive_id TEXT NOT NULL UNIQUE,
+                job_id TEXT NOT NULL UNIQUE REFERENCES import_jobs(id),
+                inventory_json TEXT NOT NULL,
+                indexed_import_id INTEGER REFERENCES imports(id),
+                indexed_at TEXT,
+                CHECK ((indexed_import_id IS NULL) = (indexed_at IS NULL))
+            )""")
+            connection.execute("PRAGMA user_version = 3")
         connection.commit()
     except Exception:
         connection.rollback()
@@ -101,7 +114,8 @@ class ImportJournal:
             )
 
     def register_inventory(self, job_id: str, source_root: str,
-                           destination_root: str, files) -> None:
+                           destination_root: str, files, *, archive_id=None,
+                           inventory_json=None) -> None:
         """Register a complete snapshot atomically; never leave a partial job.
 
         Each file supplies source/stored relative paths, size, and modification
@@ -120,6 +134,13 @@ class ImportJournal:
                 ((job_id, item.source_relative_path, item.stored_relative_path,
                   item.size_bytes, item.mtime_ns, now) for item in files)
             )
+            if archive_id is not None:
+                if inventory_json is None:
+                    raise ValueError('Managed archives require a persisted inventory')
+                self.connection.execute(
+                    'INSERT INTO managed_archive(singleton,archive_id,job_id,inventory_json) '
+                    'VALUES (1,?,?,?)', (archive_id, job_id, inventory_json)
+                )
 
     def add_file(self, job_id: str, source_path: str, stored_path: str,
                  size: int, mtime_ns: int) -> int:

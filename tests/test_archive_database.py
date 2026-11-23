@@ -24,7 +24,7 @@ class JournalTests(unittest.TestCase):
 
     def test_migration_is_repeatable_and_preserves_legacy_rows(self):
         migrate(self.db)
-        self.assertEqual(self.db.execute('PRAGMA user_version').fetchone()[0], 2)
+        self.assertEqual(self.db.execute('PRAGMA user_version').fetchone()[0], 3)
         self.assertEqual(self.db.execute('SELECT schema_version FROM imports').fetchone()[0], 1)
 
     def test_rejects_future_version_without_changes(self):
@@ -32,6 +32,17 @@ class JournalTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             migrate(self.db)
         self.assertEqual(self.db.execute('PRAGMA user_version').fetchone()[0], 99)
+
+    def test_migrates_version_two_without_changing_progress(self):
+        self.journal.transition_file(self.file, 'copying')
+        self.journal.transition_job('job', 'paused')
+        self.db.execute('DROP TABLE managed_archive')
+        self.db.execute('PRAGMA user_version=2')
+        migrate(self.db)
+        self.assertEqual(self.db.execute('PRAGMA user_version').fetchone()[0], 3)
+        self.assertEqual(self.db.execute('SELECT state FROM import_jobs').fetchone()[0], 'paused')
+        self.assertEqual(self.db.execute('SELECT state FROM import_files').fetchone()[0], 'copying')
+        self.assertEqual(self.db.execute('SELECT count(*) FROM managed_archive').fetchone()[0], 0)
 
     def test_verification_requires_matching_hash_and_size(self):
         self.journal.transition_file(self.file, 'copying')

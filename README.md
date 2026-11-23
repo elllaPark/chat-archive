@@ -165,14 +165,14 @@ Known technical issues:
 ## Safe Import Journal (In Progress)
 
 `src/archive/database.py` adds a durable import journal to an existing version 1
-archive database. `ImportJournal(connection)` migrates it to database version 2
+archive database. `ImportJournal(connection)` migrates it to database version 3
 without rewriting legacy import rows. Use a dedicated SQLite connection because
 journal operations commit each checkpoint independently.
 
 Jobs track running/paused/failed/completed states; files track
 pending/copying/verified/failed states. Verified file records require equal sizes
-and matching SHA-256 evidence. The journal does not copy or hash files itself;
-the managed copy service and Electron integration are still pending.
+and matching SHA-256 evidence. The journal stores checkpoints; `copy_import`
+performs file copying and hashing. Electron integration is still pending.
 
 Run parser, importer, and journal tests with `python3 -m unittest discover`.
 
@@ -189,7 +189,51 @@ completed files and retries interrupted files. Different existing bytes are
 never overwritten. This MVP requires POSIX locking, hard-link publication, and
 directory syncing; Windows and filesystems such as exFAT need a later supported
 publication strategy. Copy success leaves the job running until the later
-manifest/finalization step. Electron integration is still pending.
+manifest/finalization step described below. Electron integration is still pending.
+
+## Managed Archive Import
+
+From the repository root, import an export folder into a separate archive folder:
+
+```bash
+PYTHONPATH=src python3 -m archive import /path/to/export /path/to/archive
+```
+
+This creates `archive.sqlite`, preserves transcript and attachment files under
+`originals/`, parses verified transcript copies, and writes `manifest.json` before
+marking the import completed. The whole process holds one destination writer lock.
+The destination must be new/empty or an archive previously created by this command.
+Existing source-only databases are rejected rather than automatically replaced.
+
+Retry an interrupted import using its recorded source folder:
+
+```bash
+PYTHONPATH=src python3 -m archive resume /path/to/archive
+```
+
+Copies are reverified, and a committed index is reused without inserting duplicate
+messages. A recognized transcript that fails parsing blocks completion while
+retaining verified originals. Unsupported text is preserved with warnings;
+partial parser results retain system messages and missing-field information.
+
+Reopen a completed archive without the original export folder, including after
+moving the complete archive directory:
+
+```bash
+PYTHONPATH=src python3 -m archive inspect /path/to/archive --verify-files
+```
+
+Inspection opens SQLite read-only and requires both a completed job and a matching
+manifest. `--verify-files` checks full SHA-256 hashes; without it, inspection checks
+stored file existence and sizes. The Python equivalents are
+`archive.import_managed_archive(source, destination)` and
+`archive.inspect_archive(destination, verify_files=True)`.
+
+SQLite v3 persists managed archive identity, the original inventory and warnings,
+and the index checkpoint. Stored message/asset file references are relative to the
+archive. Multi-file local message IDs are namespaced while raw text and parser
+metadata are retained. Media-to-message matching, thumbnail generation, UI wiring,
+Windows/exFAT support, and application bundling are still pending.
 
 ## License
 

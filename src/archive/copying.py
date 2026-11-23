@@ -4,7 +4,7 @@ import hashlib
 import os
 import stat
 import tempfile
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 from .database import ImportJournal
@@ -145,6 +145,11 @@ def copy_import(journal: ImportJournal, job_id: str, *, chunk_bytes=DEFAULT_CHUN
     rehashed, never trusted solely because their journal status says verified.
     Job completion/manifest publication belongs to the later orchestrator.
     """
+    return _copy_import(journal, job_id, chunk_bytes=chunk_bytes, acquire_lock=True)
+
+
+def _copy_import(journal, job_id, *, chunk_bytes, acquire_lock):
+    """Internal entry point when orchestration already holds the destination lock."""
     if os.name != 'posix':
         raise NotImplementedError('Managed copying currently requires POSIX locks and hard links')
     if not isinstance(chunk_bytes, int) or chunk_bytes <= 0:
@@ -164,7 +169,7 @@ def copy_import(journal: ImportJournal, job_id: str, *, chunk_bytes=DEFAULT_CHUN
     for _, _, filename in connection.execute('PRAGMA database_list'):
         if filename and Path(filename).resolve().is_relative_to(source):
             raise ValueError('Import journal must be outside source root')
-    with _writer_lock(destination):
+    with _writer_lock(destination) if acquire_lock else nullcontext():
         if job['state'] in ('paused', 'failed'):
             journal.transition_job(job_id, 'running')
         cursor = connection.execute('SELECT * FROM import_files WHERE job_id=? ORDER BY id', (job_id,))
