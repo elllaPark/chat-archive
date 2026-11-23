@@ -183,6 +183,14 @@ source, destination)` also registers the full inventory atomically in an existin
 journal. Neither API copies files or creates the destination folder. The default
 space reserve is 64 MiB and can be overridden with `reserve_bytes`.
 
+`archive.copy_import(journal, job_id)` copies a prepared inventory, verifies
+SHA-256 and size, and checkpoints each verified file. Re-running it rechecks
+completed files and retries interrupted files. Different existing bytes are
+never overwritten. This MVP requires POSIX locking, hard-link publication, and
+directory syncing; Windows and filesystems such as exFAT need a later supported
+publication strategy. Copy success leaves the job running until the later
+manifest/finalization step. Electron integration is still pending.
+
 ## License
 
 ISC

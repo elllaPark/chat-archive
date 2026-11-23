@@ -1,4 +1,5 @@
 import json
+from contextlib import closing
 import sqlite3
 import sys
 import tempfile
@@ -35,7 +36,7 @@ class ArchiveImporterTests(unittest.TestCase):
                 source_metadata={"formatIds": ["kakaotalk_mobile_txt_ko_v1"]},
             )
 
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection:
                 connection.row_factory = sqlite3.Row
                 imported = connection.execute("SELECT * FROM imports").fetchone()
                 stored_messages = connection.execute(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import mimetypes
 import re
@@ -102,7 +103,7 @@ def import_archive(
     destination.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        with sqlite3.connect(destination) as connection:
+        with closing(sqlite3.connect(destination)) as connection, connection:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.executescript(SCHEMA_SQL)
             imported_at = datetime.now(timezone.utc).isoformat(timespec="seconds")

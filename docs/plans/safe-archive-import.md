@@ -91,7 +91,8 @@ The repository already uses Python SQLite and has an importer test. Extending th
 - [x] Create the task branch and write this plan.
 - [x] Define migration and persistent journal contracts.
 - [x] Add inventory and destination/space checks.
-- [ ] Add verified copying and deterministic collision handling.
+- [x] Add verified copying with no-overwrite publication and existing-file revalidation.
+- [ ] Add deterministic collision renaming (current behavior rejects conflicts).
 - [ ] Add cancellation, per-file resume, and duplicate handling.
 - [ ] Verify failure recovery and source preservation.
 - [ ] Plan and implement Electron integration separately.
@@ -110,6 +111,11 @@ Inject failures for insufficient space, destination disconnection/write errors, 
 - Finalize the progress/cancel/resume IPC contract in the UI integration milestone.
 
 ## Implementation log
+
+- 2026-11-23: Added `copy_import()` with bounded streaming, SHA-256 comparison, file/directory syncing, POSIX writer locking, no-overwrite hard-link publication, and independent file checkpoints. Rechecks previously verified files and recovers files published before a missing DB checkpoint. Simulated write failures, corrupt copies, changed sources, duplicate destinations, and interrupted jobs are covered with synthetic temporary files. Closed existing importer/test SQLite connections explicitly after resource warnings appeared during the suite.
+- Copy milestone limits: currently POSIX only; external filesystems must support hard links and directory fsync or the import fails recoverably. No Windows/exFAT fallback is implemented. The job remains running after successful file verification until orchestration/manifest finalization is implemented. Collision renaming, content deduplication, orphan-temp recovery, cancellation UI, and destination volume identity checks remain pending. Path checks reject observed symlinks but are not a sandbox against hostile concurrent directory replacement. Real private exports were not copied during tests.
+
+- 2026-11-23 copy milestone plan: add `src/archive/copying.py` to stream source files into same-directory temporary files, hash source and destination independently, sync and publish with a no-overwrite hard link, and checkpoint verified files. Recheck source snapshots and paths. Recover published-but-uncommitted files by hashing rather than replacing them. Use a destination writer lock on POSIX; unsupported platforms/filesystems fail explicitly. Add synthetic copy, corruption, source-change, write-error, and restart tests. Update package exports and README. Keep collision renaming, cross-file deduplication, UI progress/cancel, and manifest finalization for later increments.
 
 - 2026-11-23 completed inventory milestone: `build_inventory()` reads bounded text samples, reuses detector signatures, preserves unknown files, excludes symlinks/special files with warnings, rejects overlapping roots and portable filename collisions, and checks copy bytes plus a configurable 64 MiB reserve. `prepare_import()` registers all file snapshots atomically without creating destination files. New tests cover classification, encodings, overlap aliases, capacity errors, source changes, special files, and transaction rollback.
 - Limitations: free-space checks are advisory; 64 MiB is an initial configurable reserve, not a guarantee for database size. Classification/warnings are returned in memory while snapshot paths/sizes/mtimes are persisted. The copy milestone must persist reports, handle safe collision renaming, recheck paths/snapshots, and validate existing destination contents. The journal must already exist outside the source tree; bootstrap and UI wiring remain pending.
