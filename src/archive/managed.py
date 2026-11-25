@@ -18,6 +18,7 @@ from .database import ImportJournal, SCHEMA_VERSION, _now
 from .importer import (SCHEMA_SQL, _asset_type, _filename_metadata, _insert_assets,
                        _insert_messages, _json)
 from .storage import DEFAULT_RESERVE_BYTES, build_inventory
+from .filesystem import probe_storage, publish_no_replace, sync_file, recover_publications
 
 
 def _connect(path: Path, *, readonly=False):
@@ -30,13 +31,16 @@ def _connect(path: Path, *, readonly=False):
 
 
 def _bootstrap(source, root: Path, reserve_bytes: int) -> None:
-    """Publish a fully initialized database; an interruption cannot expose half a schema."""
+    """Prepare a full database; fallback publication is recovered before opening it."""
     for entry in root.iterdir():
         if entry.name != '.import.lock' and not entry.name.startswith('.archive-init-'):
             raise FileExistsError('Destination contains unrelated files')
     inventory = build_inventory(source, root, reserve_bytes=reserve_bytes)
     report = {'files': [asdict(item) for item in inventory.files],
               'warnings': list(inventory.warnings)}
+    report['storageCapabilities'] = probe_storage(root)
+    if not report['storageCapabilities']['directorySync']:
+        report['warnings'].append('directory_sync_unavailable_power_loss_durability_limited')
     fd, name = tempfile.mkstemp(prefix='.archive-init-', suffix='.sqlite', dir=root)
     os.close(fd)
     temporary = Path(name)
@@ -48,9 +52,8 @@ def _bootstrap(source, root: Path, reserve_bytes: int) -> None:
                 str(uuid.uuid4()), str(inventory.source_root), str(root), inventory.files,
                 archive_id=str(uuid.uuid4()), inventory_json=_json(report)
             )
-        with _reader(temporary) as stream:
-            os.fsync(stream.fileno())
-        os.link(temporary, root / 'archive.sqlite', follow_symlinks=False)
+        sync_file(temporary)
+        publish_no_replace(temporary, root / 'archive.sqlite', recovery_root=root)
         _sync_directory(root)
     finally:
         temporary.unlink(missing_ok=True)
@@ -171,7 +174,8 @@ def _manifest(connection):
     imported = connection.execute('SELECT * FROM imports WHERE id=?',
                                   (metadata['indexed_import_id'],)).fetchone()
     detail = json.loads(imported['metadata_json'])
-    return {
+    inventory = json.loads(metadata['inventory_json'])
+    payload = {
         'schemaVersion': SCHEMA_VERSION, 'archiveId': metadata['archive_id'],
         'jobId': metadata['job_id'], 'state': 'ready', 'sourceCopied': True,
         'database': 'archive.sqlite', 'originals': 'originals',
@@ -179,8 +183,12 @@ def _manifest(connection):
         'assetCount': imported['asset_count'],
         'fileCount': len(_files(connection, metadata['job_id'])),
         'formatIds': sorted({report['detected_format'] for report in detail['parserReports']}),
-        'warnings': detail['warnings'],
+        'warnings': list(dict.fromkeys(detail['warnings'] + inventory['warnings'])),
     }
+    # Older completed v3 archives lack this field; keep their manifest unchanged.
+    if 'storageCapabilities' in inventory:
+        payload['storageCapabilities'] = inventory['storageCapabilities']
+    return payload
 
 
 def _publish_manifest(root, payload):
@@ -194,7 +202,7 @@ def _publish_manifest(root, payload):
             stream.flush()
             os.fsync(stream.fileno())
         try:
-            os.link(temporary, target, follow_symlinks=False)
+            publish_no_replace(temporary, target, recovery_root=root)
         except FileExistsError:
             with _reader(target) as stream:
                 if json.load(stream) != payload:
@@ -211,8 +219,6 @@ def import_managed_archive(source, destination, *, reserve_bytes=DEFAULT_RESERVE
     Pass source=None to resume from the recorded source path. Completed archives
     reopen from stored files only. Incomplete copies still require the source.
     """
-    if os.name != 'posix':
-        raise NotImplementedError('Managed importing currently requires POSIX')
     root = Path(destination).expanduser().resolve()
     # Validate overlap before even creating a destination lock file.
     if source is not None:
@@ -222,6 +228,7 @@ def import_managed_archive(source, destination, *, reserve_bytes=DEFAULT_RESERVE
     if not isinstance(chunk_bytes, int) or chunk_bytes <= 0:
         raise ValueError('chunk_bytes must be positive')
     with _writer_lock(root):
+        publication_warnings = recover_publications(root)
         database = root / 'archive.sqlite'
         if not database.exists():
             if source is None:
@@ -253,6 +260,18 @@ def import_managed_archive(source, destination, *, reserve_bytes=DEFAULT_RESERVE
             if str(root) != job['destination_root']:
                 raise ValueError('An unfinished archive must resume at its original destination')
             try:
+                capabilities = probe_storage(root)
+                inventory = json.loads(metadata['inventory_json'])
+                inventory['warnings'] = list(dict.fromkeys(inventory['warnings'] + publication_warnings))
+                inventory['storageCapabilities'] = capabilities
+                if not capabilities['directorySync']:
+                    warning = 'directory_sync_unavailable_power_loss_durability_limited'
+                    if warning not in inventory['warnings']:
+                        inventory['warnings'].append(warning)
+                with connection:
+                    connection.execute('UPDATE managed_archive SET inventory_json=? WHERE singleton=1',
+                                       (_json(inventory),))
+                metadata = connection.execute('SELECT * FROM managed_archive WHERE singleton=1').fetchone()
                 _copy_import(journal, job_id, chunk_bytes=chunk_bytes, acquire_lock=False)
                 if metadata['indexed_import_id'] is None:
                     _index(connection, metadata, root)

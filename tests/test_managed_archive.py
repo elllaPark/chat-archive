@@ -16,9 +16,9 @@ from archive import import_managed_archive, inspect_archive
 from archive import managed
 from archive.database import ImportJournal
 from archive.importer import SCHEMA_SQL
+from archive import filesystem as fs
 
 
-@unittest.skipUnless(os.name == 'posix', 'POSIX managed import MVP')
 class ManagedArchiveTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -179,3 +179,62 @@ class ManagedArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'manifest'):
             self.run_import()
         self.assertEqual(json.loads(path.read_text())['messageCount'], 999)
+
+    def test_full_import_without_exclusive_rename_or_hardlinks(self):
+        unsupported = fs.UnsupportedStorageError(95, 'no exclusive rename')
+        with patch.object(fs, '_native_publish', side_effect=unsupported), \
+                patch.object(os, 'link', side_effect=AssertionError('hard links forbidden')):
+            result = self.run_import()
+        self.assertEqual(result['messageCount'], 3)
+        self.assertEqual(result['storageCapabilities']['publicationMethod'], 'exclusive_create_verified')
+        shutil.rmtree(self.source)
+        self.assertEqual(inspect_archive(self.destination, verify_files=True), result)
+
+    def test_missing_directory_sync_is_recorded(self):
+        with patch.object(fs, 'sync_directory', return_value=False):
+            result = self.run_import()
+        self.assertFalse(result['storageCapabilities']['directorySync'])
+        self.assertIn('directory_sync_unavailable_power_loss_durability_limited', result['warnings'])
+
+    @unittest.skipIf(os.name == 'nt', 'Windows cannot create colon filenames')
+    def test_windows_invalid_transcript_name_is_stored_portably(self):
+        (self.source / 'chat.txt').rename(self.source / 'Talk_15:10.txt')
+        result = self.run_import()
+        self.assertEqual(result['messageCount'], 3)
+        self.assertTrue((self.destination / 'originals/Talk_15%3A10.txt').exists())
+        self.assertEqual(self.query('SELECT source_file FROM messages LIMIT 1'), [('originals/Talk_15%3A10.txt',)])
+
+    def test_interrupted_fallback_database_and_manifest_are_recovered(self):
+        for index, interrupted_name in enumerate(('archive.sqlite', 'manifest.json')):
+            with self.subTest(interrupted_name=interrupted_name):
+                self.destination = self.base / f'archive_{index}'
+                original = fs._finish_publication
+                def interrupt(folder, owner):
+                    if owner['target'] == interrupted_name:
+                        target = folder.parent / owner['target']
+                        with target.open('xb') as output:
+                            output.write((folder / 'payload').read_bytes()[:32])
+                            output.flush()
+                            owner['identity'] = fs._identity(os.fstat(output.fileno()))
+                            fs._write_owner(folder, owner)
+                        raise OSError('interrupted publication')
+                    return original(folder, owner)
+                unavailable = fs.UnsupportedStorageError('exclusive rename unavailable')
+                with patch.object(fs, '_native_publish', side_effect=unavailable):
+                    with patch.object(fs, '_finish_publication', side_effect=interrupt):
+                        with self.assertRaises(OSError):
+                            self.run_import()
+                    result = self.run_import()
+                self.assertEqual(result['messageCount'], 3)
+                self.assertEqual(self.query('SELECT count(*) FROM imports'), [(1,)])
+                self.assertEqual(inspect_archive(self.destination, verify_files=True), result)
+
+    def test_control_like_directories_in_originals_are_only_data(self):
+        data = self.source / '.chat-publish-example'
+        data.mkdir()
+        (data / 'owner.json').write_text('{"kind":"exclusive_create_publication","version":1}')
+        (data / 'payload').write_bytes(b'keep this attachment')
+        self.run_import()
+        self.assertEqual((self.destination / 'originals/.chat-publish-example/payload').read_bytes(),
+                         b'keep this attachment')
+        self.run_import()

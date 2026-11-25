@@ -1,3 +1,4 @@
+import os
 import sqlite3
 import sys
 import tempfile
@@ -8,7 +9,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from archive.database import ImportJournal
 from archive.importer import SCHEMA_SQL
-from archive.storage import build_inventory, prepare_import
+from archive.storage import build_inventory, prepare_import, _allocate_component, _portable_component
 
 
 class InventoryTests(unittest.TestCase):
@@ -43,12 +44,15 @@ class InventoryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 build_inventory(self.source, target)
         alias = self.base / 'alias'
-        alias.symlink_to(self.source, target_is_directory=True)
+        try:
+            alias.symlink_to(self.source, target_is_directory=True)
+        except OSError:
+            self.skipTest('Symlink creation is unavailable')
         with self.assertRaises(ValueError):
             build_inventory(self.source, alias)
 
+    @unittest.skipUnless(hasattr(os, 'mkfifo'), 'FIFO requires POSIX')
     def test_skips_links_and_special_files(self):
-        import os
         (self.source / 'regular').write_bytes(b'a')
         (self.source / 'link').symlink_to(self.base)
         os.mkfifo(self.source / 'pipe')
@@ -95,14 +99,28 @@ class InventoryTests(unittest.TestCase):
                                        inventory.files + inventory.files)
         self.assertIsNone(connection.execute("SELECT id FROM import_jobs WHERE id='broken'").fetchone())
 
-    def test_portable_filename_collision_is_rejected(self):
+    def test_portable_filename_collision_is_disambiguated(self):
         (self.source / 'A.txt').write_bytes(b'one')
         second = self.source / 'a.txt'
         if second.exists():
             self.skipTest('Filesystem does not allow case-distinct filenames')
         second.write_bytes(b'two')
-        with self.assertRaisesRegex(ValueError, 'collision'):
-            build_inventory(self.source, self.target)
+        inventory = build_inventory(self.source, self.target)
+        stored = [item.stored_relative_path.casefold() for item in inventory.files]
+        self.assertEqual(len(set(stored)), 2)
+        self.assertTrue(all(path.endswith('.txt') for path in stored))
+
+    def test_portable_name_rules_and_collision_allocator(self):
+        expected = {'Talk_15:10.txt': 'Talk_15%3A10.txt', 'CON.txt': '%43ON.txt',
+                    'a. ': 'a%2E%20', 'a%3A.txt': 'a%253A.txt',
+                    'photo?.jpg': 'photo%3F.jpg', 'LPT1': '%4CPT1'}
+        for original, stored in expected.items():
+            self.assertEqual(_portable_component(original), stored)
+        used = set()
+        names = [_allocate_component(name, name, used)
+                 for name in ('A.txt', 'a.txt', 'é.txt', 'e\u0301.txt')]
+        self.assertEqual(len(set(name.casefold() for name in names)), 4)
+        self.assertTrue(all(name.endswith('.txt') for name in names))
 
     def test_source_change_during_detection_is_rejected(self):
         path = self.source / 'chat.txt'

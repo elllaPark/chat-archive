@@ -3,6 +3,7 @@ import os
 import sqlite3
 import sys
 import tempfile
+import subprocess
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -14,7 +15,6 @@ from archive.importer import SCHEMA_SQL
 from archive import copying
 
 
-@unittest.skipUnless(os.name == 'posix', 'POSIX copy MVP')
 class CopyTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -117,7 +117,10 @@ class CopyTests(unittest.TestCase):
         self.destination.mkdir()
         outside = self.destination.parent / 'outside'
         outside.mkdir()
-        (self.destination / 'originals').symlink_to(outside, target_is_directory=True)
+        try:
+            (self.destination / 'originals').symlink_to(outside, target_is_directory=True)
+        except OSError:
+            self.skipTest('Symlink creation is unavailable')
         with self.assertRaises(ValueError):
             copy_import(self.journal, 'job')
         self.assertEqual(list(outside.iterdir()), [])
@@ -128,7 +131,7 @@ class CopyTests(unittest.TestCase):
                 copy_import(self.journal, 'job')
 
     def test_unsupported_publication_fails_without_final_file(self):
-        with patch('archive.copying.os.link', side_effect=OSError('hard links unavailable')):
+        with patch('archive.copying.publish_no_replace', side_effect=OSError('exclusive rename unavailable')):
             with self.assertRaises(OSError):
                 copy_import(self.journal, 'job')
         self.assertFalse((self.destination / 'originals/empty.bin').exists())
@@ -136,14 +139,18 @@ class CopyTests(unittest.TestCase):
     def test_source_replaced_by_symlink_is_rejected(self):
         path = self.source / 'empty.bin'
         path.unlink()
-        path.symlink_to(self.source / 'nested/photo.jpg')
-        with self.assertRaises(OSError):
+        try:
+            path.symlink_to(self.source / 'nested/photo.jpg')
+        except OSError:
+            self.skipTest('Symlink creation is unavailable')
+        with self.assertRaises((OSError, ValueError)):
             copy_import(self.journal, 'job')
 
     def test_source_changes_during_copy_are_rejected(self):
         original = copying.os.fsync
         def change_source(fd):
-            (self.source / 'empty.bin').write_bytes(b'changed during copy')
+            if list(self.destination.glob('.chat-stage-*/payload.part')):
+                (self.source / 'empty.bin').write_bytes(b'changed during copy')
             original(fd)
         with patch('archive.copying.os.fsync', side_effect=change_source):
             with self.assertRaisesRegex(OSError, 'changed during'):
@@ -162,3 +169,28 @@ class CopyTests(unittest.TestCase):
         self.assertEqual(self.states(), ['verified', 'copying'])
         self.assertEqual(copy_import(self.journal, 'job'), 2)
         self.assertEqual(self.states(), ['verified', 'verified'])
+
+    def test_process_exit_leaves_owned_stage_that_restart_can_clean(self):
+        code = '''
+import os, sqlite3, sys
+from archive.database import ImportJournal
+from archive import copying
+from archive.filesystem import owned_stage
+from pathlib import Path
+connection = sqlite3.connect(sys.argv[1])
+journal = ImportJournal(connection)
+def crash(source, target, record, chunk_bytes):
+    with owned_stage(Path(record['destination_root']), record['job_id'], record) as part:
+        part.write_bytes(b'partial')
+        os._exit(99)
+copying._copy_one = crash
+copying.copy_import(journal, 'job')
+'''
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run([sys.executable, '-c', code, str(self.dbpath)],
+                                env={**os.environ, 'PYTHONPATH': str(root / 'src')},
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 99, result.stderr)
+        self.assertTrue(list(self.destination.glob('.chat-stage-*')))
+        self.assertEqual(copy_import(self.journal, 'job'), 2)
+        self.assertFalse(list(self.destination.glob('.chat-stage-*')))

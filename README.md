@@ -186,9 +186,8 @@ space reserve is 64 MiB and can be overridden with `reserve_bytes`.
 `archive.copy_import(journal, job_id)` copies a prepared inventory, verifies
 SHA-256 and size, and checkpoints each verified file. Re-running it rechecks
 completed files and retries interrupted files. Different existing bytes are
-never overwritten. This MVP requires POSIX locking, hard-link publication, and
-directory syncing; Windows and filesystems such as exFAT need a later supported
-publication strategy. Copy success leaves the job running until the later
+never overwritten. The storage adapter uses native locks and no-replace
+publication without requiring hard links. Copy success leaves the job running until the
 manifest/finalization step described below. Electron integration is still pending.
 
 ## Managed Archive Import
@@ -233,7 +232,49 @@ SQLite v3 persists managed archive identity, the original inventory and warnings
 and the index checkpoint. Stored message/asset file references are relative to the
 archive. Multi-file local message IDs are namespaced while raw text and parser
 metadata are retained. Media-to-message matching, thumbnail generation, UI wiring,
-Windows/exFAT support, and application bundling are still pending.
+and application bundling are still pending.
+
+## Portable Storage
+
+`src/archive/filesystem.py` separates OS-specific locking and file publication:
+
+- Windows uses a nonblocking msvcrt byte-range lock and non-replacing rename.
+- macOS/Linux use flock and native exclusive rename when supported.
+- Volumes that reject exclusive rename use an O_EXCL-created destination plus a
+  retained verified payload and ownership journal. Incomplete files never count
+  as verified; restart extends only an owned, matching prefix, then hashes again.
+- Unrelated existing files are preserved. A conflict, missing ownership evidence,
+  or changed partial file stops recovery instead of guessing what to overwrite.
+- Marked copy staging is cleaned on retry; unowned legacy temporaries and unknown
+  entries are retained. Recovery control directories live outside `originals/`.
+
+The selected volume is probed before importing. File fsync and hash verification
+remain required. If directory syncing is unavailable, the manifest records
+`directory_sync_unavailable_power_loss_durability_limited`; this explicitly limits
+power-loss durability rather than guaranteeing persistence on every device.
+
+New inventories encode Windows-invalid names (for example `15:10.txt` becomes
+`15%3A10.txt`) and disambiguate case/Unicode collisions deterministically. Original
+names/paths remain in SQLite; transcript extensions are preserved for detection.
+Existing archived paths are not rewritten automatically. Older archives with
+incompatible filenames may need reimporting before moving to Windows/exFAT.
+
+PowerShell can run the CLI with:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m archive import "C:/Exports/Chat" "D:/ChatArchive"
+```
+
+Validation status: the macOS suite passes, including simulated unavailable rename,
+copy/process interruption, DB/manifest recovery, and Windows adapter dispatch.
+`.github/workflows/archive-tests.yml` adds native Windows/macOS/Linux runs on
+Python 3.12/3.13, but those remote jobs have not run as part of this local task.
+Actual exFAT disk-image creation was blocked by host permissions, so real exFAT
+and native Windows validation remain outstanding. An extremely narrow fallback
+crash between exclusive destination creation and ownership checkpointing retains
+the conflict for manual resolution. Network shares, volume identity checks,
+path-length handling and sudden power-loss testing remain follow-up work.
 
 ## License
 

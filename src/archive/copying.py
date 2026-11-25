@@ -1,28 +1,20 @@
-"""Verified, resumable file copying for a prepared import journal (POSIX MVP)."""
+"""Verified, resumable file copying for a prepared import journal."""
 
 import hashlib
+import json
 import os
-import stat
-import tempfile
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
 from pathlib import Path
 
 from .database import ImportJournal
 from .storage import _check_roots
+from .filesystem import (ensure_directory as _directory, reader as _reader,
+                         sync_directory as _sync_directory, writer_lock as _writer_lock,
+                         publish_no_replace, sync_file, owned_stage, recover_staging,
+                         recover_publications, is_link)
 
 
 DEFAULT_CHUNK_BYTES = 1024 * 1024
-
-
-def _directory(path: Path) -> None:
-    """Create directories without accepting symlinks in the destination path."""
-    for part in reversed((path, *path.parents[:-1])):
-        try:
-            part.mkdir()
-        except FileExistsError:
-            pass
-        if not stat.S_ISDIR(part.lstat().st_mode):
-            raise ValueError('Destination path contains a symlink or non-directory')
 
 
 def _relative(root: Path, relative: str) -> Path:
@@ -33,19 +25,9 @@ def _relative(root: Path, relative: str) -> Path:
     for parent in result.parents:
         if parent == root:
             break
-        if parent.is_symlink():
+        if parent.exists() and is_link(parent.lstat()):
             raise ValueError('Symlink in import path')
     return result
-
-
-@contextmanager
-def _reader(path: Path):
-    # O_NONBLOCK avoids hanging if a regular source was replaced with a FIFO.
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    with os.fdopen(fd, 'rb') as stream:
-        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-            raise ValueError('Expected a regular file')
-        yield stream
 
 
 def _snapshot(info):
@@ -68,23 +50,13 @@ def _hash_file(path: Path, chunk_bytes: int) -> tuple[int, str]:
     return size, digest.hexdigest()
 
 
-def _sync_directory(path: Path) -> None:
-    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-
-
 def _copy_one(source: Path, target: Path, record: dict, chunk_bytes: int):
     """Publish verified bytes without replacing any existing destination file.
 
-    Hard-link publication is atomic and refuses an existing name. Filesystems
-    without hard links fail rather than falling back to an overwriting rename.
-    Temporary files are on the destination volume; only our own temp is removed.
+    Exclusive rename refuses an existing name without requiring hard links.
+    A marked staging workspace on the destination volume supports safe cleanup.
     """
-    temporary = None
-    try:
+    with owned_stage(Path(record['destination_root']), record['job_id'], record) as temporary:
         with _reader(source) as stream:
             before = os.fstat(stream.fileno())
             if (before.st_size, before.st_mtime_ns) != (
@@ -92,11 +64,9 @@ def _copy_one(source: Path, target: Path, record: dict, chunk_bytes: int):
             ):
                 raise OSError('Source snapshot changed since inventory')
             _directory(target.parent)
-            fd, name = tempfile.mkstemp(prefix='.chat-import-', suffix='.part', dir=target.parent)
-            temporary = Path(name)
             digest = hashlib.sha256()
             size = 0
-            with os.fdopen(fd, 'wb') as output:
+            with temporary.open('xb') as output:
                 while chunk := stream.read(chunk_bytes):
                     output.write(chunk)
                     digest.update(chunk)
@@ -111,31 +81,15 @@ def _copy_one(source: Path, target: Path, record: dict, chunk_bytes: int):
         if _hash_file(temporary, chunk_bytes) != (size, source_hash) or size != record['expected_size']:
             raise OSError('Copied file size or SHA-256 mismatch')
         try:
-            os.link(temporary, target, follow_symlinks=False)
+            publish_no_replace(temporary, target, recovery_root=Path(record['destination_root']))
         except FileExistsError:
             # A previous run may have published the file before its DB commit.
             # Also tolerate identical existing bytes; different bytes are retained.
             if _hash_file(target, chunk_bytes) != (size, source_hash):
                 raise FileExistsError('Destination contains different bytes')
-        with _reader(target) as published:
-            os.fsync(published.fileno())
+        sync_file(target)
         _sync_directory(target.parent)
         return size, source_hash
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
-
-
-@contextmanager
-def _writer_lock(root: Path):
-    import fcntl
-    _directory(root)
-    fd = os.open(root / '.import.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        yield
-    finally:
-        os.close(fd)
 
 
 def copy_import(journal: ImportJournal, job_id: str, *, chunk_bytes=DEFAULT_CHUNK_BYTES) -> int:
@@ -150,8 +104,6 @@ def copy_import(journal: ImportJournal, job_id: str, *, chunk_bytes=DEFAULT_CHUN
 
 def _copy_import(journal, job_id, *, chunk_bytes, acquire_lock):
     """Internal entry point when orchestration already holds the destination lock."""
-    if os.name != 'posix':
-        raise NotImplementedError('Managed copying currently requires POSIX locks and hard links')
     if not isinstance(chunk_bytes, int) or chunk_bytes <= 0:
         raise ValueError('chunk_bytes must be a positive integer')
     connection = journal.connection
@@ -177,8 +129,18 @@ def _copy_import(journal, job_id, *, chunk_bytes, acquire_lock):
         records = [dict(zip(columns, row)) for row in cursor.fetchall()]
         if not records:
             raise ValueError('No files registered for copying')
+        warnings = recover_publications(destination) + recover_staging(destination, job_id, records)
+        if warnings:
+            managed = connection.execute('SELECT inventory_json FROM managed_archive WHERE job_id=?', (job_id,)).fetchone()
+            if managed:
+                report = json.loads(managed[0])
+                report['warnings'] = list(dict.fromkeys(report['warnings'] + warnings))
+                with connection:
+                    connection.execute('UPDATE managed_archive SET inventory_json=? WHERE job_id=?',
+                                       (json.dumps(report, ensure_ascii=False), job_id))
         verified = 0
         for record in records:
+            record['destination_root'] = str(destination)
             try:
                 # A crashed process can leave copying state behind.
                 if record['state'] == 'copying':

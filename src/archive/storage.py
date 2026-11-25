@@ -1,7 +1,9 @@
 """Read-only source inventory and destination preflight before managed copying."""
 
 import codecs
+import hashlib
 import os
+import re
 import shutil
 import stat
 import unicodedata
@@ -11,10 +13,48 @@ from pathlib import Path
 from parser.detector import UNKNOWN_FORMAT, detect_format
 from parser.models import PreprocessedInput
 from .database import ImportJournal
+from .filesystem import is_link
 
 
 SAMPLE_BYTES = 64 * 1024
 DEFAULT_RESERVE_BYTES = 64 * 1024 * 1024
+
+
+def _portable_component(name: str) -> str:
+    """Encode Windows-invalid characters without losing the original DB name.
+
+    Percent itself is escaped so literal percent sequences cannot collide with
+    encoded characters. Trailing spaces/dots and device names need special care.
+    """
+    end = len(name.rstrip(' .'))
+    encoded = ''.join(
+        f'%{ord(char):02X}' if char in '%<>:"/\\|?*' or ord(char) < 32
+        or (index >= end and char in ' .') else char
+        for index, char in enumerate(name)
+    )
+    device = name.split('.', 1)[0].rstrip(' ').upper()
+    if device in {'CON', 'PRN', 'AUX', 'NUL', 'CONIN$', 'CONOUT$'} or re.fullmatch(r'(COM|LPT)[1-9¹²³]', device):
+        encoded = f'%{ord(name[0]):02X}' + encoded[1:]
+    return encoded
+
+
+def _allocate_component(name: str, relative: str, used: set[str]) -> str:
+    """Disambiguate case/Unicode collisions deterministically within one folder."""
+    candidate = _portable_component(name)
+    key = lambda value: unicodedata.normalize('NFC', value).casefold()
+    if key(candidate) in used:
+        digest = hashlib.sha256(relative.encode('utf-8', errors='surrogatepass')).hexdigest()
+        original = candidate
+        suffix = Path(original).suffix
+        stem = original[:-len(suffix)] if suffix else original
+        for width in range(12, 65, 4):
+            candidate = stem + '~' + digest[:width] + suffix
+            if key(candidate) not in used:
+                break
+        else:
+            raise ValueError('Unable to allocate a distinct stored filename')
+    used.add(key(candidate))
+    return candidate
 
 
 @dataclass(frozen=True)
@@ -93,34 +133,32 @@ def build_inventory(source, destination, *, reserve_bytes=DEFAULT_RESERVE_BYTES)
     root, target = _check_roots(source, destination)
     files = []
     warnings = []
-    used_paths = set()
-
-    def visit(directory):
+    def visit(directory, stored_parent='originals'):
+        used_names = set()
         with os.scandir(directory) as entries:
             ordered = sorted(entries, key=lambda item: item.name)
         for entry in ordered:
             path = Path(entry.path)
             relative = path.relative_to(root).as_posix()
             snapshot = entry.stat(follow_symlinks=False)
-            if stat.S_ISDIR(snapshot.st_mode) or stat.S_ISREG(snapshot.st_mode):
-                key = unicodedata.normalize('NFC', relative).casefold()
-                if key in used_paths:
-                    raise ValueError(f'Destination filename collision: {relative}')
-                used_paths.add(key)
-            if stat.S_ISLNK(snapshot.st_mode):
+            if is_link(snapshot):
                 warnings.append(f'skipped_symlink: {relative}')
             elif stat.S_ISDIR(snapshot.st_mode):
-                visit(path)
+                name = _allocate_component(entry.name, relative, used_names)
+                if name != entry.name:
+                    warnings.append(f'stored_name_encoded: {relative}')
+                visit(path, stored_parent + '/' + name)
             elif stat.S_ISREG(snapshot.st_mode):
+                name = _allocate_component(entry.name, relative, used_names)
+                if name != entry.name:
+                    warnings.append(f'stored_name_encoded: {relative}')
                 role, format_id, warning = _classify(path)
                 after = path.lstat()
                 if (snapshot.st_dev, snapshot.st_ino, snapshot.st_size, snapshot.st_mtime_ns) != (
                     after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns
                 ):
                     raise OSError(f'Source changed during inventory: {relative}')
-                stored = 'originals/' + relative
-                # Conservative portable collision check; allocate renamed paths
-                # in the copy milestone rather than silently overwriting files.
+                stored = stored_parent + '/' + name
                 files.append(InventoryFile(relative, stored, snapshot.st_size,
                                            snapshot.st_mtime_ns, role, format_id))
                 if warning:
